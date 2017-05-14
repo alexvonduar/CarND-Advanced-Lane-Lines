@@ -1,30 +1,48 @@
-import numpy as np
-import cv2
 import glob
-import matplotlib.pyplot as plt
 import os
 import pickle
-from moviepy.editor import VideoFileClip
 from shutil import copyfile
+
+import matplotlib.pyplot as plt
+import numpy as np
+from moviepy.editor import VideoFileClip
+
+import cv2
+
 #%matplotlib qt
 
 # helper functions and global defs
 TMP_DIR = "output_images"
 CAL_DIR = "camera_cal"
-#OUT_DIR = "output_images"
+# OUT_DIR = "output_images"
 src = np.float32([[490, 482], [810, 482], [1250, 720], [40, 720]])
 dst = np.float32([[0, 0], [1280, 0], [1250, 720], [40, 720]])
+
 
 def save_result(img, path, append=None):
     if path != "":
         head, tail = os.path.split(path)
         name, ext = os.path.splitext(tail)
         if append != None:
-            #print("save name :", path, append)
+            # print("save name :", path, append)
             append = "_" + append
         savename = os.path.join(head, name + append + ext)
         cv2.imwrite(savename, img)
-        #print("save file :", savename)
+        # print("save file :", savename)
+
+
+def save_plot(data, path, append=None):
+    if path != "":
+        head, tail = os.path.split(path)
+        name, ext = os.path.splitext(tail)
+        if append != None:
+            # print("save name :", path, append)
+            append = "_" + append
+        savename = os.path.join(head, name + append + ext)
+        fig, ax = plt.subplots(nrows=1, ncols=1)  # create figure & 1 axis
+        ax.plot(data)
+        fig.savefig(savename)   # save the figure to file
+        plt.close(fig)    # close the figure
 
 # do camera calibration from input images
 
@@ -66,7 +84,7 @@ def do_camera_calibration(image_names, SAVE=""):
                 savename = os.path.join(head, basename)
                 chess_img = cv2.drawChessboardCorners(
                     img, (9, 6), corners, ret)
-                #print("save :", savename)
+                # print("save :", savename)
                 save_result(chess_img, savename, append="chess")
 
         else:
@@ -85,12 +103,12 @@ def do_camera_calibration(image_names, SAVE=""):
             head, tail = os.path.split(SAVE)
             savename = os.path.join(head, basename)
             undist = cv2.undistort(img, mtx, dist, None, mtx)
-            #print("save :", savename)
+            # print("save :", savename)
             save_result(undist, savename, append="undistort")
 
     return mtx, dist
 
-#dist, mtx = camera_calibration()
+# dist, mtx = camera_calibration()
 
 
 CAM_CAL_FILE = "calibration.pkl"
@@ -165,7 +183,7 @@ def gen_binary_images(img, mtx, dist, SAVE=""):
 
     # Threshold color channel
     s_thresh_min = 170
-    s_thresh_max = 255
+    s_thresh_max = 190
     s_binary = np.zeros_like(s_channel)
     s_binary[(s_channel >= s_thresh_min) & (s_channel <= s_thresh_max)] = 1
 
@@ -250,6 +268,9 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
     if True:  # not prev_lanes:
         # Take a histogram of the bottom half of the image
         histogram = np.sum(image[int(image.shape[0] / 2):, :], axis=0)
+        top_histogram = np.sum(image[:int(image.shape[0] / 2), :], axis=0)
+        save_plot(histogram, savename, "bottom_hist")
+        save_plot(top_histogram, savename, "top_hist")
         # Create an output image to draw on and  visualize the result
         out_img = np.dstack((image, image, image)) * 255
         # Find the peak of the left and right halves of the histogram
@@ -425,7 +446,7 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
     left_lane.update(left_fitx, ploty)
     right_lane.update(right_fitx, ploty)
 
-    #print("save lane image: ", savename)
+    # print("save lane image: ", savename)
     save_result(out_img, savename, "lane")
 
     return left_fit, right_fit
@@ -495,7 +516,7 @@ def process_image(img, lanes=None, SAVE=""):
 
     mtx, dist = cam_calib(SAVE=savename)
 
-    #print("process :", fname)
+    # print("process :", fname)
     bin_img = gen_binary_images(img, mtx, dist, savename)
 
     warp_img = perspective_transform(bin_img, src, dst)
@@ -520,7 +541,7 @@ def process_image(img, lanes=None, SAVE=""):
     cv2.putText(out_img, "Distance from center: %.2fm" %
                 (dist_x), (20, 60), cv2.FONT_HERSHEY_PLAIN, 1.0, (0, 255, 0))
 
-    #print("save name :", save_name)
+    # print("save name :", save_name)
     save_result(out_img, savename, "final")
 
     return out_img
