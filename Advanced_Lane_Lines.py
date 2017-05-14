@@ -6,7 +6,6 @@ import os
 import pickle
 from moviepy.editor import VideoFileClip
 from shutil import copyfile
-
 #%matplotlib qt
 
 # helper functions and global defs
@@ -278,6 +277,11 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
         left_lane_inds = []
         right_lane_inds = []
 
+        left_search_center = []
+        right_search_center = []
+        left_search_center.append(leftx_current)
+        right_search_center.append(rightx_current)
+
         # Step through the windows one by one
         for window in range(nwindows):
             # Identify window boundaries in x and y (and right and left)
@@ -299,8 +303,14 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
             # position
             if len(good_left_inds) > minpix:
                 leftx_current = np.int(np.mean(nonzerox[good_left_inds]))
+                left_search_center.append(leftx_current)
+            else:
+                left_search_center.append(None)
             if len(good_right_inds) > minpix:
                 rightx_current = np.int(np.mean(nonzerox[good_right_inds]))
+                right_search_center.append(rightx_current)
+            else:
+                right_search_center.append(None)
 
         # Concatenate the arrays of indices
         left_lane_inds = np.concatenate(left_lane_inds)
@@ -364,6 +374,35 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
     # Color in left and right line pixels
     out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
     out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
+
+    # Draw the fit lines
+    left_x = left_fitx
+    left_x[left_x < 0] = 0
+    left_x[left_x >= 1280] = 1279
+    right_x = right_fitx
+    right_x[right_x < 0] = 0
+    right_x[right_x >= 1280] = 1279
+    l_points = np.squeeze(
+        np.array(np.dstack((left_x, ploty)), dtype='int32'))
+    r_points = np.squeeze(
+        np.array(np.dstack((right_x, ploty)), dtype='int32'))
+    out_img[l_points[:, 1], l_points[:, 0]] = [0, 255, 255]
+    out_img[r_points[:, 1], r_points[:, 0]] = [0, 255, 255]
+
+    # Draw the search box
+    for window in range(nwindows):
+        if left_search_center[window] != None:
+            win_x0 = left_search_center[window] - margin
+            win_x1 = left_search_center[window] + margin
+            win_y0 = image.shape[0] - (window + 1) * window_height
+            win_y1 = image.shape[0] - window * window_height
+            cv2.rectangle(out_img, (win_x0, win_y0), (win_x1, win_y1), (0, 255, 255))
+        if right_search_center[window] != None:
+            win_x0 = right_search_center[window] - margin
+            win_x1 = right_search_center[window] + margin
+            win_y0 = image.shape[0] - (window + 1) * window_height
+            win_y1 = image.shape[0] - window * window_height
+            cv2.rectangle(out_img, (win_x0, win_y0), (win_x1, win_y1), (0, 255, 255))
 
     # Generate a polygon to illustrate the search window area
     # And recast the x and y points into usable format for cv2.fillPoly()
