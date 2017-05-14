@@ -49,8 +49,12 @@ def do_camera_calibration(image_names, SAVE=""):
 
             # Draw and save the chessboard corners
             if SAVE != "":
+                basename = os.path.basename(image_name)
+                head, tail = os.path.split(SAVE)
+                savename = os.path.join(head, basename)
                 chess_img = cv2.drawChessboardCorners(img, (9, 6), corners, ret)
-                save_result(chess_img, SAVE, append="chess")
+                #print("save :", savename)
+                save_result(chess_img, savename, append="chess")
 
         else:
             print("can't fine chess board ", image_name)
@@ -60,6 +64,17 @@ def do_camera_calibration(image_names, SAVE=""):
 
     ret, mtx, dist, rvecs, tvecs = \
         cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
+
+    if SAVE != "":
+        for image_name in image_names:
+            img = cv2.imread(image_name)
+            basename = os.path.basename(image_name)
+            head, tail = os.path.split(SAVE)
+            savename = os.path.join(head, basename)
+            undist = cv2.undistort(img, mtx, dist, None, mtx)
+            #print("save :", savename)
+            save_result(undist, savename, append="undistort")
+
     return mtx, dist
 
 #dist, mtx = camera_calibration()
@@ -188,13 +203,13 @@ class Line():
         # frame window
         self.frames_per_window = 3
 
-    def enableDebug(path=""):
+    def enableDebug(self, path=""):
         self.debug = True
         if path != "":
             self.savepath = path
 
     def update(self, x, y):
-        self.savename = str(self.frame_count)+".jpg"
+        self.savename = str(self.num_frames)+".jpg"
 
         self.num_frames += 1
 
