@@ -12,7 +12,8 @@ from shutil import copyfile
 TMP_DIR = "output_images"
 CAL_DIR = "camera_cal"
 #OUT_DIR = "output_images"
-
+src = np.float32([[490, 482], [810, 482], [1250, 720], [40, 720]])
+dst = np.float32([[0, 0], [1280, 0], [1250, 720], [40, 720]])
 
 def save_result(img, path, append=None):
     if path != "":
@@ -174,6 +175,10 @@ def gen_binary_images(img, mtx, dist, SAVE=""):
     color_binary = np.dstack((sxbinary, s_binary, np.zeros_like(sxbinary)))
     color_binary[(sxbinary == 1), 0] = 255
     color_binary[(s_binary == 1), 1] = 255
+    cv2.line(color_binary, (src[0][0], src[0][1]), (src[1][0], src[1][1]), (0, 0, 255))
+    cv2.line(color_binary, (src[1][0], src[1][1]), (src[2][0], src[2][1]), (0, 0, 255))
+    cv2.line(color_binary, (src[2][0], src[2][1]), (src[3][0], src[3][1]), (0, 0, 255))
+    cv2.line(color_binary, (src[3][0], src[3][1]), (src[0][0], src[0][1]), (0, 0, 255))
     save_result(color_binary, savename, "color_stack")
 
     # Combine the two binary thresholds
@@ -182,11 +187,6 @@ def gen_binary_images(img, mtx, dist, SAVE=""):
 
     save_result(combined_binary, savename, "combined")
     return combined_binary
-
-
-src = np.float32([[490, 482], [810, 482], [1250, 720], [40, 720]])
-dst = np.float32([[0, 0], [1280, 0], [1250, 720], [40, 720]])
-
 
 def perspective_transform(img, src, dst):
     size = (img.shape[1], img.shape[0])
