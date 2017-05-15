@@ -6,6 +6,7 @@ from shutil import copyfile
 import matplotlib.pyplot as plt
 import numpy as np
 from moviepy.editor import VideoFileClip
+from scipy import optimize
 
 import cv2
 
@@ -15,8 +16,11 @@ import cv2
 TMP_DIR = "output_images"
 CAL_DIR = "camera_cal"
 # OUT_DIR = "output_images"
-src = np.float32([[490, 482], [810, 482], [1250, 720], [40, 720]])
+src = np.float32([[500, 482], [800, 482], [1240, 720], [50, 720]])
 dst = np.float32([[0, 0], [1280, 0], [1250, 720], [40, 720]])
+src = np.float32([[520, 480], [760, 480], [1240, 720], [40, 720]])
+#dst = np.float32([[350, 0], [930, 0], [930, 720], [350, 720]])
+dst = np.float32([[50, 0], [1230, 0], [1230, 720], [50, 720]])
 
 
 def save_result(img, path, append=None):
@@ -30,17 +34,62 @@ def save_result(img, path, append=None):
         cv2.imwrite(savename, img)
         # print("save file :", savename)
 
+# Gaussian curve fitting
+# https://github.com/tiagopereira/python_tips/wiki/Scipy%3A-curve-fitting
 
-def save_plot(data, path, append=None):
+
+def gaussian(P, x):
+    ''' Returns the gaussian function for P=m,stdev,max,offset '''
+    return P[3] + P[2] / (P[1] * np.sqrt(2 * np.pi)) * np.exp(-((x - P[0])**2 / (2 * P[1]**2)))
+
+
+def errfunc(P, x, y):
+    return y - gaussian(P, x)
+
+
+def gaussian_fit(data):
+    x = np.arange(len(data))
+    # initial estimate of parameters
+    p0 = [np.argmax(data), 1., np.max(data), 0]
+    fit = optimize.leastsq(errfunc, p0, args=(x, data))
+    return fit
+
+
+def save_hist(data, path, append=None):
     if path != "":
         head, tail = os.path.split(path)
         name, ext = os.path.splitext(tail)
         if append != None:
             # print("save name :", path, append)
             append = "_" + append
+        n = int(data.shape[0] / 2)
+        #varl = np.var(data[:n] / np.sum(data[:n]))
+        #varr = np.var(data[n:] / np.sum(data[n:]))
         savename = os.path.join(head, name + append + ext)
         fig, ax = plt.subplots(nrows=1, ncols=1)  # create figure & 1 axis
-        ax.plot(data)
+
+        data = data / np.sum(data)
+
+        ax.plot(data, 'b')
+
+        left = np.copy(data)
+        left[n:] = 0
+        right = np.copy(data)
+        right[:n] = 0
+
+        left_fit = gaussian_fit(left)
+        ax.plot(gaussian(left_fit[0], np.arange(len(data))), 'r')
+
+        right_fit = gaussian_fit(right)
+        ax.plot(gaussian(right_fit[0], np.arange(len(right))), 'g')
+
+        ax.set_title("left mean: " + "{0:f}".format(left_fit[0][0]) +
+                     " stdev: " + "{0:f}".format(left_fit[0][1]) +
+                     " max: " + "{0:f}\n".format(left_fit[0][2]) +
+                     " right mean: " + "{0:f}".format(right_fit[0][0]) +
+                     " stdev: " + "{0:f}".format(right_fit[0][1]) +
+                     " max: " + "{0:f}".format(right_fit[0][2]))
+
         fig.savefig(savename)   # save the figure to file
         plt.close(fig)    # close the figure
 
@@ -148,7 +197,7 @@ def cam_calib(cal_dir=CAL_DIR, cal_file=CAM_CAL_FILE, SAVE=""):
 
 def gen_binary_images(img, mtx, dist, SAVE=""):
     # save original image
-    if SAVE == "" and left_lane.savename != "":
+    if SAVE == "" and left_lane.savepath != "":
         savename = os.path.join(left_lane.savepath, left_lane.savename)
     else:
         savename = SAVE
@@ -164,7 +213,8 @@ def gen_binary_images(img, mtx, dist, SAVE=""):
     s_channel = hls[:, :, 2]
 
     # Grayscale image
-    # NOTE: we already saw that standard grayscaling lost color information for the lane lines
+    # NOTE: we already saw that standard grayscaling lost color information for
+    # the lane lines
     # Explore gradients in other colors spaces / color channels to see what
     # might work better
     gray = cv2.cvtColor(dst, cv2.COLOR_BGR2GRAY)
@@ -187,16 +237,21 @@ def gen_binary_images(img, mtx, dist, SAVE=""):
     s_binary = np.zeros_like(s_channel)
     s_binary[(s_channel >= s_thresh_min) & (s_channel <= s_thresh_max)] = 1
 
-    # Stack each channel to view their individual contributions in green and blue respectively
+    # Stack each channel to view their individual contributions in green and
+    # blue respectively
     # This returns a stack of the two binary images, whose components you can
     # see as different colors
     color_binary = np.dstack((sxbinary, s_binary, np.zeros_like(sxbinary)))
     color_binary[(sxbinary == 1), 0] = 255
     color_binary[(s_binary == 1), 1] = 255
-    cv2.line(color_binary, (src[0][0], src[0][1]), (src[1][0], src[1][1]), (0, 0, 255))
-    cv2.line(color_binary, (src[1][0], src[1][1]), (src[2][0], src[2][1]), (0, 0, 255))
-    cv2.line(color_binary, (src[2][0], src[2][1]), (src[3][0], src[3][1]), (0, 0, 255))
-    cv2.line(color_binary, (src[3][0], src[3][1]), (src[0][0], src[0][1]), (0, 0, 255))
+    cv2.line(color_binary, (src[0][0], src[0][1]),
+             (src[1][0], src[1][1]), (0, 0, 255))
+    cv2.line(color_binary, (src[1][0], src[1][1]),
+             (src[2][0], src[2][1]), (0, 0, 255))
+    cv2.line(color_binary, (src[2][0], src[2][1]),
+             (src[3][0], src[3][1]), (0, 0, 255))
+    cv2.line(color_binary, (src[3][0], src[3][1]),
+             (src[0][0], src[0][1]), (0, 0, 255))
     save_result(color_binary, savename, "color_stack")
 
     # Combine the two binary thresholds
@@ -205,6 +260,7 @@ def gen_binary_images(img, mtx, dist, SAVE=""):
 
     save_result(combined_binary, savename, "combined")
     return combined_binary
+
 
 def perspective_transform(img, src, dst):
     size = (img.shape[1], img.shape[0])
@@ -267,20 +323,19 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
 
     if True:  # not prev_lanes:
         # Take a histogram of the bottom half of the image
-        histogram = np.sum(image[int(image.shape[0] / 2):, :], axis=0)
+        bot_histogram = np.sum(image[int(image.shape[0] / 2):, :], axis=0)
         top_histogram = np.sum(image[:int(image.shape[0] / 2), :], axis=0)
-        save_plot(histogram, savename, "bottom_hist")
-        save_plot(top_histogram, savename, "top_hist")
-        # Create an output image to draw on and  visualize the result
+        save_hist(bot_histogram, savename, "bottom_hist")
+        save_hist(top_histogram, savename, "top_hist")
+        # Create an output image to draw on and visualize the result
         out_img = np.dstack((image, image, image)) * 255
         # Find the peak of the left and right halves of the histogram
         # These will be the starting point for the left and right lines
-        midpoint = np.int(histogram.shape[0] / 2)
-        leftx_base = np.argmax(histogram[:midpoint])
-        rightx_base = np.argmax(histogram[midpoint:]) + midpoint
+        leftx_base, rightx_base = lane_start_points(
+            bot_histogram, top_histogram)
 
         # Choose the number of sliding windows
-        nwindows = 9
+        nwindows = 18
         # Set height of windows
         window_height = np.int(image.shape[0] / nwindows)
         # Identify the x and y positions of all nonzero pixels in the image
@@ -300,14 +355,17 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
 
         left_search_center = []
         right_search_center = []
-        left_search_center.append(leftx_current)
-        right_search_center.append(rightx_current)
 
-        # Step through the windows one by one
-        for window in range(nwindows):
-            # Identify window boundaries in x and y (and right and left)
-            win_y_low = image.shape[0] - (window + 1) * window_height
-            win_y_high = image.shape[0] - window * window_height
+        half_nwindow = int(np.floor(nwindows / 2))
+
+        center_y_low = half_nwindow * window_height
+        center_y_hi = center_y_low
+        if (nwindows % 2 != 0):
+            left_search_center.append(leftx_current)
+            right_search_center.append(rightx_current)
+            center_y_hi = (half_nwindow + 1) * window_height
+            win_y_low = center_y_low
+            win_y_high = center_y_hi
             win_xleft_low = leftx_current - margin
             win_xleft_high = leftx_current + margin
             win_xright_low = rightx_current - margin
@@ -320,6 +378,7 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
             # Append these indices to the lists
             left_lane_inds.append(good_left_inds)
             right_lane_inds.append(good_right_inds)
+
             # If you found > minpix pixels, recenter next window on their mean
             # position
             if len(good_left_inds) > minpix:
@@ -333,6 +392,69 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
             else:
                 right_search_center.append(None)
 
+        # Step through the windows one by one
+        top_leftx_current = leftx_current
+        bot_leftx_current = leftx_current
+        top_rightx_current = rightx_current
+        bot_rightx_current = rightx_current
+        for window in range(half_nwindow):
+            # Top
+            # Identify window boundaries in x and y (and right and left)
+            win_y_low = center_y_low - (window + 1) * window_height
+            win_y_high = center_y_low - window * window_height
+            win_xleft_low = top_leftx_current - margin
+            win_xleft_high = top_leftx_current + margin
+            win_xright_low = top_rightx_current - margin
+            win_xright_high = top_rightx_current + margin
+            # Identify the nonzero pixels in x and y within the window
+            good_left_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) & (
+                nonzerox >= win_xleft_low) & (nonzerox < win_xleft_high)).nonzero()[0]
+            good_right_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) & (
+                nonzerox >= win_xright_low) & (nonzerox < win_xright_high)).nonzero()[0]
+            # Append these indices to the lists
+            left_lane_inds.append(good_left_inds)
+            right_lane_inds.append(good_right_inds)
+            # If you found > minpix pixels, recenter next window on their mean
+            # position
+            if len(good_left_inds) > minpix:
+                top_leftx_current = np.int(np.mean(nonzerox[good_left_inds]))
+                left_search_center.append(top_leftx_current)
+            else:
+                left_search_center.append(None)
+            if len(good_right_inds) > minpix:
+                top_rightx_current = np.int(np.mean(nonzerox[good_right_inds]))
+                right_search_center.append(top_rightx_current)
+            else:
+                right_search_center.append(None)
+
+            # bottom
+            # Identify window boundaries in x and y (and right and left)
+            win_y_low = center_y_hi + window * window_height
+            win_y_high = center_y_hi + (window + 1) * window_height
+            win_xleft_low = bot_leftx_current - margin
+            win_xleft_high = bot_leftx_current + margin
+            win_xright_low = bot_rightx_current - margin
+            win_xright_high = bot_rightx_current + margin
+            # Identify the nonzero pixels in x and y within the window
+            good_left_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) & (
+                nonzerox >= win_xleft_low) & (nonzerox < win_xleft_high)).nonzero()[0]
+            good_right_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) & (
+                nonzerox >= win_xright_low) & (nonzerox < win_xright_high)).nonzero()[0]
+            # Append these indices to the lists
+            left_lane_inds.insert(0, good_left_inds)
+            right_lane_inds.insert(0, good_right_inds)
+            # If you found > minpix pixels, recenter next window on their mean
+            # position
+            if len(good_left_inds) > minpix:
+                bot_leftx_current = np.int(np.mean(nonzerox[good_left_inds]))
+                left_search_center.insert(0, bot_leftx_current)
+            else:
+                left_search_center.insert(0, None)
+            if len(good_right_inds) > minpix:
+                bot_rightx_current = np.int(np.mean(nonzerox[good_right_inds]))
+                right_search_center.insert(0, bot_rightx_current)
+            else:
+                right_search_center.insert(0, None)
         # Concatenate the arrays of indices
         left_lane_inds = np.concatenate(left_lane_inds)
         right_lane_inds = np.concatenate(right_lane_inds)
@@ -374,20 +496,21 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
     xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
     left_fit_cr = np.polyfit(lefty * ym_per_pix, leftx * xm_per_pix, 2)
     right_fit_cr = np.polyfit(righty * ym_per_pix, rightx * xm_per_pix, 2)
-    left_curverad = ((1 + (2 * left_fit_cr[0] * np.max(lefty) + left_fit_cr[1])**2)**1.5) \
+    left_curverad = ((1 + (2 * left_fit_cr[0] * np.max(lefty) + left_fit_cr[1]) ** 2) ** 1.5) \
         / np.absolute(2 * left_fit_cr[0])
-    right_curverad = ((1 + (2 * right_fit_cr[0] * np.max(lefty) + right_fit_cr[1])**2)**1.5) \
+    right_curverad = ((1 + (2 * right_fit_cr[0] * np.max(lefty) + right_fit_cr[1]) ** 2) ** 1.5) \
         / np.absolute(2 * right_fit_cr[0])
 
     # Calculate the position of the vehicle
-    rightx_int = right_fit[0] * 720**2 + right_fit[1] * 720 + right_fit[2]
-    leftx_int = left_fit[0] * 720**2 + left_fit[1] * 720 + left_fit[2]
+    rightx_int = right_fit[0] * 720 ** 2 + right_fit[1] * 720 + right_fit[2]
+    leftx_int = left_fit[0] * 720 ** 2 + left_fit[1] * 720 + left_fit[2]
     center = abs((1280 / 2) - ((rightx_int + leftx_int) / 2))
 
     # Generate x and y values for plotting
     ploty = np.linspace(0, image.shape[0] - 1, image.shape[0])
-    left_fitx = left_fit[0] * ploty**2 + left_fit[1] * ploty + left_fit[2]
-    right_fitx = right_fit[0] * ploty**2 + right_fit[1] * ploty + right_fit[2]
+    left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
+    right_fitx = right_fit[0] * ploty ** 2 + \
+        right_fit[1] * ploty + right_fit[2]
 
     # Create an image to draw on and an image to show the selection window
     out_img = np.dstack((image, image, image)) * 255
@@ -403,10 +526,8 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
     right_x = right_fitx
     right_x[right_x < 0] = 0
     right_x[right_x >= 1280] = 1279
-    l_points = np.squeeze(
-        np.array(np.dstack((left_x, ploty)), dtype='int32'))
-    r_points = np.squeeze(
-        np.array(np.dstack((right_x, ploty)), dtype='int32'))
+    l_points = np.squeeze(np.array(np.dstack((left_x, ploty)), dtype='int32'))
+    r_points = np.squeeze(np.array(np.dstack((right_x, ploty)), dtype='int32'))
     out_img[l_points[:, 1], l_points[:, 0]] = [0, 255, 255]
     out_img[r_points[:, 1], r_points[:, 0]] = [0, 255, 255]
 
@@ -417,13 +538,15 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
             win_x1 = left_search_center[window] + margin
             win_y0 = image.shape[0] - (window + 1) * window_height
             win_y1 = image.shape[0] - window * window_height
-            cv2.rectangle(out_img, (win_x0, win_y0), (win_x1, win_y1), (0, 255, 255))
+            cv2.rectangle(out_img, (win_x0, win_y0),
+                          (win_x1, win_y1), (0, 255, 255))
         if right_search_center[window] != None:
             win_x0 = right_search_center[window] - margin
             win_x1 = right_search_center[window] + margin
             win_y0 = image.shape[0] - (window + 1) * window_height
             win_y1 = image.shape[0] - window * window_height
-            cv2.rectangle(out_img, (win_x0, win_y0), (win_x1, win_y1), (0, 255, 255))
+            cv2.rectangle(out_img, (win_x0, win_y0),
+                          (win_x1, win_y1), (0, 255, 255))
 
     # Generate a polygon to illustrate the search window area
     # And recast the x and y points into usable format for cv2.fillPoly()
@@ -452,6 +575,67 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
     return left_fit, right_fit
 
 
+def get_points_from_fit(bot_gaussian_fit, top_gaussian_fit, midpoint, left=True):
+    top_mean = top_gaussian_fit[0][0]
+    top_stdev = top_gaussian_fit[0][1]
+    top_max = top_gaussian_fit[0][2]
+
+    bot_mean = bot_gaussian_fit[0][0]
+    bot_stdev = bot_gaussian_fit[0][1]
+    bot_max = bot_gaussian_fit[0][2]
+
+    top_candidate = 0.
+    if left == True:
+        good_position = top_mean < (midpoint * 3 / 4)
+    else:
+        good_position = top_mean > (midpoint + midpoint / 4)
+
+    if top_stdev < 100 and top_max > 0.1 and good_position:
+        top_candidate = top_mean
+
+    bot_candidate = 0.
+    if left == True:
+        good_position = bot_mean < (midpoint * 3 / 4)
+    else:
+        good_position = bot_mean > (midpoint + midpoint / 4)
+
+    if bot_stdev < 100 and top_max > 0.1 and good_position:
+        bot_candidate = bot_mean
+
+    if top_candidate == 0 and bot_candidate == 0:
+        point = int((top_mean + bot_mean) / 2)
+    elif top_candidate != 0 and bot_candidate != 0:
+        point = int((top_candidate + bot_candidate) / 2)
+    else:
+        point = top_candidate + bot_candidate
+    return point
+
+
+def lane_start_points(bot, top):
+    midpoint = np.int(bot.shape[0] / 2)
+    top_left = np.copy(top)
+    top_left[midpoint:] = 0
+    top_right = np.copy(top)
+    top_right[:midpoint] = 0
+
+    top_left_fit = gaussian_fit(top_left)
+    top_right_fit = gaussian_fit(top_right)
+
+    bot_left = np.copy(bot)
+    bot_left[midpoint:] = 0
+    bot_right = np.copy(bot)
+    bot_right[:midpoint] = 0
+
+    bot_left_fit = gaussian_fit(bot_left)
+    bot_right_fit = gaussian_fit(bot_right)
+
+    left = get_points_from_fit(bot_left_fit, top_left_fit, midpoint, left=True)
+    right = get_points_from_fit(
+        bot_right_fit, top_right_fit, midpoint, left=False)
+
+    return left, right
+
+
 # Define conversions in x and y from pixels space to meters
 IMG_WIDTH = 1280
 IMG_HEIGHT = 720
@@ -460,6 +644,7 @@ YM_PER_PX = 30 / IMG_HEIGHT  # meters per pixel in y dimension
 XM_PER_PX = 3.7 / LANE_WIDTH_PX  # meters per pixel in x dimension
 
 # Calculate distance in meters from center of lane
+
 
 def dist_from_center(left_fitx, right_fitx):
     # Calculate distance from center
@@ -471,6 +656,7 @@ def dist_from_center(left_fitx, right_fitx):
 
 # Calculate the average curvature radius from the detected fitting
 # parameters of left & right curves
+
 
 def get_curverad(ploty, left_fitx, right_fitx):
     y_eval = np.max(ploty)
@@ -524,8 +710,7 @@ def process_image(img, lanes=None, SAVE=""):
 
     lanes = detect_lanes(warp_img, prev_lanes=None, save_path=savename)
 
-    left_fitx, ploty, right_fitx = generate_plot(
-        warp_img, lanes[0], lanes[1])
+    left_fitx, ploty, right_fitx = generate_plot(warp_img, lanes[0], lanes[1])
 
     out_img = plot_lane(img, left_fitx, ploty, right_fitx)
 
@@ -546,19 +731,22 @@ def process_image(img, lanes=None, SAVE=""):
 
     return out_img
 
+
 def process_video_image(img, lanes=None, SAVE=""):
-    r,g,b = cv2.split(img)
-    img = cv2.merge([b,g,r])
+    r, g, b = cv2.split(img)
+    img = cv2.merge([b, g, r])
     img = process_image(img, lanes=lanes, SAVE=SAVE)
-    b,g,r = cv2.split(img)
-    img = cv2.merge([r,g,b])
+    b, g, r = cv2.split(img)
+    img = cv2.merge([r, g, b])
     return img
+
 
 def process_test_images():
     images = glob.glob('test_images/*.jpg')
     save_path = "output_images"
 
     for fname in images:
+        print("process image:", fname)
         img = cv2.imread(fname)
         head, tail = os.path.split(fname)
         save_name = os.path.join(save_path, tail)
@@ -569,11 +757,7 @@ def process_test_images():
 left_lane = Line()
 right_lane = Line()
 
-process_test_images()
-
-
-src = np.float32([[595, 451], [680, 451], [233, 720], [1067, 720]])
-dst = np.float32([[350, 0], [930, 0], [350, 720], [930, 720]])
+# process_test_images()
 
 
 def load_test_video(file_name='test_video.mp4'):
@@ -589,14 +773,13 @@ def load_test_video(file_name='test_video.mp4'):
 
     return vimages, vframes
 
-left_lane = Line(os.path.join(TMP_DIR, "video"))
-right_lane = Line(os.path.join(TMP_DIR, "video"))
 
+left_lane = Line()  # os.path.join(TMP_DIR, "video"))
+right_lane = Line()  # os.path.join(TMP_DIR, "video"))
 input_video = "project_video.mp4"
 output_video = "project_lane.mp4"
 
-'''
+
 clip1 = VideoFileClip(input_video)
 output_clip = clip1.fl_image(process_video_image)
 output_clip.write_videofile(output_video, audio=False)
-'''
