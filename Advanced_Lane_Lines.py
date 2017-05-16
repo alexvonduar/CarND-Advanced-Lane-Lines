@@ -10,6 +10,9 @@ from scipy import optimize
 
 import cv2
 
+from gaussian_fit import gaussian_sfit
+from gaussian_fit import gaussian
+
 #%matplotlib qt
 
 # helper functions and global defs
@@ -29,31 +32,13 @@ def save_result(img, path, append=None):
         name, ext = os.path.splitext(tail)
         if append != None:
             # print("save name :", path, append)
-            append = "_" + append
-        savename = os.path.join(head, name + append + ext)
+            if os.path.exists(os.path.join(head, append)) == False:
+                print("mkdir :", os.path.join(head, append))
+                os.mkdir(os.path.join(head, append))
+            #append = "_" + append
+        savename = os.path.join(head, append, name + ext)
         cv2.imwrite(savename, img)
         # print("save file :", savename)
-
-# Gaussian curve fitting
-# https://github.com/tiagopereira/python_tips/wiki/Scipy%3A-curve-fitting
-
-
-def gaussian(P, x):
-    ''' Returns the gaussian function for P=m,stdev,max,offset '''
-    return P[3] + P[2] / (P[1] * np.sqrt(2 * np.pi)) * np.exp(-((x - P[0])**2 / (2 * P[1]**2)))
-
-
-def errfunc(P, x, y):
-    return y - gaussian(P, x)
-
-
-def gaussian_fit(data):
-    x = np.arange(len(data))
-    # initial estimate of parameters
-    p0 = [np.argmax(data), 1., np.max(data), 0]
-    fit = optimize.leastsq(errfunc, p0, args=(x, data))
-    return fit
-
 
 def save_hist(data, path, append=None):
     if path != "":
@@ -77,23 +62,23 @@ def save_hist(data, path, append=None):
         right = np.copy(data)
         right[:n] = 0
 
-        left_fit = gaussian_fit(left)
-        ax.plot(gaussian(left_fit[0], np.arange(len(data))), 'r')
+        #left_fit = gaussian_fit(left)
+        left_fit = gaussian_sfit(left)
+        ax.plot(gaussian(left_fit, np.arange(len(data))), 'r')
 
-        right_fit = gaussian_fit(right)
-        ax.plot(gaussian(right_fit[0], np.arange(len(right))), 'g')
+        #right_fit = gaussian_fit(right)
+        right_fit = gaussian_sfit(right)
+        ax.plot(gaussian(right_fit, np.arange(len(right))), 'g')
 
-        ax.set_title("left mean: " + "{0:f}".format(left_fit[0][0]) +
-                     " stdev: " + "{0:f}".format(left_fit[0][1]) +
-                     " max: " + "{0:f}\n".format(left_fit[0][2]) +
-                     " right mean: " + "{0:f}".format(right_fit[0][0]) +
-                     " stdev: " + "{0:f}".format(right_fit[0][1]) +
-                     " max: " + "{0:f}".format(right_fit[0][2]))
+        ax.set_title("left mean: " + "{0:f}".format(left_fit[0]) +
+                     " stdev: " + "{0:f}".format(left_fit[1]) +
+                     " max: " + "{0:f}\n".format(left_fit[2]) +
+                     " right mean: " + "{0:f}".format(right_fit[0]) +
+                     " stdev: " + "{0:f}".format(right_fit[1]) +
+                     " max: " + "{0:f}".format(right_fit[2]))
 
         fig.savefig(savename)   # save the figure to file
         plt.close(fig)    # close the figure
-
-# do camera calibration from input images
 
 
 def do_camera_calibration(image_names, SAVE=""):
@@ -156,9 +141,6 @@ def do_camera_calibration(image_names, SAVE=""):
             save_result(undist, savename, append="undistort")
 
     return mtx, dist
-
-# dist, mtx = camera_calibration()
-
 
 CAM_CAL_FILE = "calibration.pkl"
 
@@ -576,13 +558,13 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
 
 
 def get_points_from_fit(bot_gaussian_fit, top_gaussian_fit, midpoint, left=True):
-    top_mean = top_gaussian_fit[0][0]
-    top_stdev = top_gaussian_fit[0][1]
-    top_max = top_gaussian_fit[0][2]
+    top_mean = top_gaussian_fit[0]
+    top_stdev = top_gaussian_fit[1]
+    top_max = top_gaussian_fit[2]
 
-    bot_mean = bot_gaussian_fit[0][0]
-    bot_stdev = bot_gaussian_fit[0][1]
-    bot_max = bot_gaussian_fit[0][2]
+    bot_mean = bot_gaussian_fit[0]
+    bot_stdev = bot_gaussian_fit[1]
+    bot_max = bot_gaussian_fit[2]
 
     top_candidate = 0.
     if left == True:
@@ -618,16 +600,16 @@ def lane_start_points(bot, top):
     top_right = np.copy(top)
     top_right[:midpoint] = 0
 
-    top_left_fit = gaussian_fit(top_left)
-    top_right_fit = gaussian_fit(top_right)
+    top_left_fit = gaussian_sfit(top_left)
+    top_right_fit = gaussian_sfit(top_right)
 
     bot_left = np.copy(bot)
     bot_left[midpoint:] = 0
     bot_right = np.copy(bot)
     bot_right[:midpoint] = 0
 
-    bot_left_fit = gaussian_fit(bot_left)
-    bot_right_fit = gaussian_fit(bot_right)
+    bot_left_fit = gaussian_sfit(bot_left)
+    bot_right_fit = gaussian_sfit(bot_right)
 
     left = get_points_from_fit(bot_left_fit, top_left_fit, midpoint, left=True)
     right = get_points_from_fit(
@@ -746,7 +728,7 @@ def process_test_images():
     save_path = "output_images"
 
     for fname in images:
-        print("process image:", fname)
+        # print("process image:", fname)
         img = cv2.imread(fname)
         head, tail = os.path.split(fname)
         save_name = os.path.join(save_path, tail)
@@ -757,7 +739,7 @@ def process_test_images():
 left_lane = Line()
 right_lane = Line()
 
-# process_test_images()
+process_test_images()
 
 
 def load_test_video(file_name='test_video.mp4'):
@@ -774,8 +756,8 @@ def load_test_video(file_name='test_video.mp4'):
     return vimages, vframes
 
 
-left_lane = Line()  # os.path.join(TMP_DIR, "video"))
-right_lane = Line()  # os.path.join(TMP_DIR, "video"))
+left_lane = Line(os.path.join(TMP_DIR, "video"))
+right_lane = Line(os.path.join(TMP_DIR, "video"))
 input_video = "project_video.mp4"
 output_video = "project_lane.mp4"
 
@@ -783,3 +765,4 @@ output_video = "project_lane.mp4"
 clip1 = VideoFileClip(input_video)
 output_clip = clip1.fl_image(process_video_image)
 output_clip.write_videofile(output_video, audio=False)
+
