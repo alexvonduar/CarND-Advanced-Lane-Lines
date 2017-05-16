@@ -21,7 +21,7 @@ CAL_DIR = "camera_cal"
 src = np.float32([[500, 482], [800, 482], [1240, 720], [50, 720]])
 dst = np.float32([[0, 0], [1280, 0], [1250, 720], [40, 720]])
 src = np.float32([[520, 480], [760, 480], [1240, 720], [40, 720]])
-#dst = np.float32([[350, 0], [930, 0], [930, 720], [350, 720]])
+# dst = np.float32([[350, 0], [930, 0], [930, 720], [350, 720]])
 dst = np.float32([[50, 0], [1230, 0], [1230, 720], [50, 720]])
 
 
@@ -34,7 +34,7 @@ def save_result(img, path, append=None):
             if os.path.exists(os.path.join(head, append)) == False:
                 print("mkdir :", os.path.join(head, append))
                 os.mkdir(os.path.join(head, append))
-            #append = "_" + append
+            # append = "_" + append
         savename = os.path.join(head, append, name + ext)
         cv2.imwrite(savename, img)
         # print("save file :", savename)
@@ -46,13 +46,13 @@ def save_hist(data, path, append=None):
         name, ext = os.path.splitext(tail)
         if append != None:
             # print("save name :", path, append)
-            #append = "_" + append
+            # append = "_" + append
             if os.path.exists(os.path.join(head, append)) == False:
                 print("mkdir :", os.path.join(head, append))
                 os.mkdir(os.path.join(head, append))
         n = int(data.shape[0] / 2)
-        #varl = np.var(data[:n] / np.sum(data[:n]))
-        #varr = np.var(data[n:] / np.sum(data[n:]))
+        # varl = np.var(data[:n] / np.sum(data[:n]))
+        # varr = np.var(data[n:] / np.sum(data[n:]))
         savename = os.path.join(head, append, name + ext)
         fig, ax = plt.subplots(nrows=1, ncols=1)  # create figure & 1 axis
 
@@ -65,11 +65,11 @@ def save_hist(data, path, append=None):
         right = np.copy(data)
         right[:n] = 0
 
-        #left_fit = gaussian_fit(left)
+        # left_fit = gaussian_fit(left)
         left_fit = gaussian_sfit(left)
         ax.plot(gaussian(left_fit, np.arange(len(data))), 'r')
 
-        #right_fit = gaussian_fit(right)
+        # right_fit = gaussian_fit(right)
         right_fit = gaussian_sfit(right)
         ax.plot(gaussian(right_fit, np.arange(len(right))), 'g')
 
@@ -257,7 +257,7 @@ def perspective_transform(img, src, dst):
 # Define a class to receive the characteristics of each line detection
 
 
-class Line():
+class Lane():
     def __init__(self, default_path=""):
         # was the line detected in the last iteration?
         self.detected = False
@@ -283,8 +283,10 @@ class Line():
         self.debug = False
         # number of frames processed
         self.num_frames = 0
-        # frame window
-        self.frames_per_window = 3
+        # number of history result saved
+        self.num_history = 0
+        # maximum number of history save
+        self.MAX_NUM_HISTORY = 3
         # debug name
         self.savename = "{0:08d}".format(self.num_frames) + ".jpg"
         # debug save path
@@ -297,17 +299,36 @@ class Line():
 
     def update(self, x, y):
         self.savename = "{0:08d}".format(self.num_frames) + ".jpg"
+        self.detected = True
+
+        self.allx = x
+        self.ally = y
+
+        self.current_fit = np.polyfit(self.ally, self.allx, 2)
+        self.recent_xfitted.append(self.current_fit)
+        self.num_history += 1
+
+        if (self.num_history > self.MAX_NUM_HISTORY):
+            self.recent_xfitted.pop()
+
+        self.best_fit = np.mean(self.recent_xfitted, axis=0)
 
         self.num_frames += 1
 
 
 def detect_lanes(image, prev_lanes=None, save_path=""):
+    global left_lane
+    global right_lane
     if save_path == "" and left_lane.savepath != "":
         savename = os.path.join(left_lane.savepath, left_lane.savename)
     else:
         savename = save_path
 
-    if True:  # not prev_lanes:
+    # Choose the number of sliding windows
+    nwindows = 18
+    left_center_line = []
+    right_center_line = []
+    if left_lane.detected == False:
         # Take a histogram of the bottom half of the image
         bot_histogram = np.sum(image[int(image.shape[0] / 2):, :], axis=0)
         top_histogram = np.sum(image[:int(image.shape[0] / 2), :], axis=0)
@@ -317,11 +338,9 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
         out_img = np.dstack((image, image, image)) * 255
         # Find the peak of the left and right halves of the histogram
         # These will be the starting point for the left and right lines
-        leftx_base, rightx_base = lane_start_points(
+        leftx_base, rightx_base = gen_from_hist(
             bot_histogram, top_histogram)
 
-        # Choose the number of sliding windows
-        nwindows = 18
         # Set height of windows
         window_height = np.int(image.shape[0] / nwindows)
         # Identify the x and y positions of all nonzero pixels in the image
@@ -339,16 +358,13 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
         left_lane_inds = []
         right_lane_inds = []
 
-        left_search_center = []
-        right_search_center = []
-
         half_nwindow = int(np.floor(nwindows / 2))
 
         center_y_low = half_nwindow * window_height
         center_y_hi = center_y_low
         if (nwindows % 2 != 0):
-            left_search_center.append(leftx_current)
-            right_search_center.append(rightx_current)
+            left_center_line.append(leftx_current)
+            right_center_line.append(rightx_current)
             center_y_hi = (half_nwindow + 1) * window_height
             win_y_low = center_y_low
             win_y_high = center_y_hi
@@ -369,14 +385,14 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
             # position
             if len(good_left_inds) > minpix:
                 leftx_current = np.int(np.mean(nonzerox[good_left_inds]))
-                left_search_center.append(leftx_current)
+                left_center_line.append(leftx_current)
             else:
-                left_search_center.append(None)
+                left_center_line.append(None)
             if len(good_right_inds) > minpix:
                 rightx_current = np.int(np.mean(nonzerox[good_right_inds]))
-                right_search_center.append(rightx_current)
+                right_center_line.append(rightx_current)
             else:
-                right_search_center.append(None)
+                right_center_line.append(None)
 
         # Step through the windows one by one
         top_leftx_current = leftx_current
@@ -404,14 +420,14 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
             # position
             if len(good_left_inds) > minpix:
                 top_leftx_current = np.int(np.mean(nonzerox[good_left_inds]))
-                left_search_center.append(top_leftx_current)
+                left_center_line.append(top_leftx_current)
             else:
-                left_search_center.append(None)
+                left_center_line.append(None)
             if len(good_right_inds) > minpix:
                 top_rightx_current = np.int(np.mean(nonzerox[good_right_inds]))
-                right_search_center.append(top_rightx_current)
+                right_center_line.append(top_rightx_current)
             else:
-                right_search_center.append(None)
+                right_center_line.append(None)
 
             # bottom
             # Identify window boundaries in x and y (and right and left)
@@ -433,37 +449,37 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
             # position
             if len(good_left_inds) > minpix:
                 bot_leftx_current = np.int(np.mean(nonzerox[good_left_inds]))
-                left_search_center.insert(0, bot_leftx_current)
+                left_center_line.insert(0, bot_leftx_current)
             else:
-                left_search_center.insert(0, None)
+                left_center_line.insert(0, None)
             if len(good_right_inds) > minpix:
                 bot_rightx_current = np.int(np.mean(nonzerox[good_right_inds]))
-                right_search_center.insert(0, bot_rightx_current)
+                right_center_line.insert(0, bot_rightx_current)
             else:
-                right_search_center.insert(0, None)
+                right_center_line.insert(0, None)
         # Concatenate the arrays of indices
         left_lane_inds = np.concatenate(left_lane_inds)
         right_lane_inds = np.concatenate(right_lane_inds)
 
     else:
-        left_fit = prev_lanes[0]
-        right_fit = prev_lanes[1]
+        pred_left_fit = left_lane.best_fit
+        pred_right_fit = right_lane.best_fit
         nonzero = image.nonzero()
         nonzeroy = np.array(nonzero[0])
         nonzerox = np.array(nonzero[1])
         margin = 100
 
-        left_lane_center = left_fit[0] * \
-            (nonzeroy ** 2) + left_fit[1] * nonzeroy + left_fit[2]
-        left_lane_boarder0 = left_lane_center - margin
-        left_lane_boarder1 = left_lane_center + margin
+        pred_center = pred_left_fit[0] * \
+            (nonzeroy ** 2) + pred_left_fit[1] * nonzeroy + pred_left_fit[2]
+        left_lane_boarder0 = pred_center - margin
+        left_lane_boarder1 = pred_center + margin
         left_lane_inds = ((nonzerox > left_lane_boarder0) &
                           (nonzerox < left_lane_boarder1))
 
-        right_lane_center = right_fit[0] * \
-            (nonzeroy ** 2) + right_fit[1] * nonzeroy + right_fit[2]
-        right_lane_boarder0 = right_lane_center - margin
-        right_lane_boarder1 = right_lane_center + margin
+        pred_center = pred_right_fit[0] * \
+            (nonzeroy ** 2) + pred_right_fit[1] * nonzeroy + pred_right_fit[2]
+        right_lane_boarder0 = pred_center - margin
+        right_lane_boarder1 = pred_center + margin
         right_lane_inds = ((nonzerox > right_lane_boarder0)
                            & (nonzerox < right_lane_boarder1))
 
@@ -474,14 +490,15 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
     righty = nonzeroy[right_lane_inds]
 
     # Fit a second order polynomial to each
-    left_fit = np.polyfit(lefty, leftx, 2)
-    right_fit = np.polyfit(righty, rightx, 2)
+    pred_left_fit = np.polyfit(lefty, leftx, 2)
+    pred_right_fit = np.polyfit(righty, rightx, 2)
 
     # Generate x and y values for plotting
     ploty = np.linspace(0, image.shape[0] - 1, image.shape[0])
-    left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
-    right_fitx = right_fit[0] * ploty ** 2 + \
-        right_fit[1] * ploty + right_fit[2]
+    left_fitx = pred_left_fit[0] * ploty ** 2 + \
+        pred_left_fit[1] * ploty + pred_left_fit[2]
+    right_fitx = pred_right_fit[0] * ploty ** 2 + \
+        pred_right_fit[1] * ploty + pred_right_fit[2]
 
     # Create an image to draw on and an image to show the selection window
     out_img = np.dstack((image, image, image)) * 255
@@ -503,21 +520,9 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
     out_img[r_points[:, 1], r_points[:, 0]] = [0, 255, 255]
 
     # Draw the search box
-    for window in range(nwindows):
-        if left_search_center[window] != None:
-            win_x0 = left_search_center[window] - margin
-            win_x1 = left_search_center[window] + margin
-            win_y0 = image.shape[0] - (window + 1) * window_height
-            win_y1 = image.shape[0] - window * window_height
-            cv2.rectangle(out_img, (win_x0, win_y0),
-                          (win_x1, win_y1), (0, 255, 255))
-        if right_search_center[window] != None:
-            win_x0 = right_search_center[window] - margin
-            win_x1 = right_search_center[window] + margin
-            win_y0 = image.shape[0] - (window + 1) * window_height
-            win_y1 = image.shape[0] - window * window_height
-            cv2.rectangle(out_img, (win_x0, win_y0),
-                          (win_x1, win_y1), (0, 255, 255))
+    if left_lane.detected == False:
+        draw_search_box(left_center_line, right_center_line,
+                        image.shape[0], nwindows, margin, out_img)
 
     # Generate a polygon to illustrate the search window area
     # And recast the x and y points into usable format for cv2.fillPoly()
@@ -536,17 +541,36 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
     cv2.fillPoly(window_img, np.int_([left_line_pts]), (0, 255, 0))
     cv2.fillPoly(window_img, np.int_([right_line_pts]), (0, 255, 0))
     result = cv2.addWeighted(out_img, 1, window_img, 0.3, 0)
+    # print("save lane image: ", savename)
+    save_result(out_img, savename, "lane")
 
     left_lane.update(left_fitx, ploty)
     right_lane.update(right_fitx, ploty)
 
-    # print("save lane image: ", savename)
-    save_result(out_img, savename, "lane")
-
-    return left_fit, right_fit
+    return pred_left_fit, pred_right_fit
 
 
-def get_points_from_fit(bot_gaussian_fit, top_gaussian_fit, midpoint, left=True):
+def draw_search_box(left_search_center, right_search_center, height, num_widows, margin, out_img):
+    # Draw the search box
+    window_height = int(height / num_widows)
+    for n in range(num_widows):
+        if left_search_center[n] != None:
+            win_x0 = left_search_center[n] - margin
+            win_x1 = left_search_center[n] + margin
+            win_y0 = height - (n + 1) * window_height
+            win_y1 = height - n * window_height
+            cv2.rectangle(out_img, (win_x0, win_y0),
+                          (win_x1, win_y1), (0, 255, 255))
+        if right_search_center[n] != None:
+            win_x0 = right_search_center[n] - margin
+            win_x1 = right_search_center[n] + margin
+            win_y0 = height - (n + 1) * window_height
+            win_y1 = height - n * window_height
+            cv2.rectangle(out_img, (win_x0, win_y0),
+                          (win_x1, win_y1), (0, 255, 255))
+
+
+def gaussian_fit_points(bot_gaussian_fit, top_gaussian_fit, midpoint, left=True):
     top_mean = top_gaussian_fit[0]
     top_stdev = top_gaussian_fit[1]
     top_max = top_gaussian_fit[2]
@@ -582,7 +606,7 @@ def get_points_from_fit(bot_gaussian_fit, top_gaussian_fit, midpoint, left=True)
     return point
 
 
-def lane_start_points(bot, top):
+def gen_from_hist(bot, top):
     midpoint = np.int(bot.shape[0] / 2)
     top_left = np.copy(top)
     top_left[midpoint:] = 0
@@ -600,8 +624,8 @@ def lane_start_points(bot, top):
     bot_left_fit = gaussian_sfit(bot_left)
     bot_right_fit = gaussian_sfit(bot_right)
 
-    left = get_points_from_fit(bot_left_fit, top_left_fit, midpoint, left=True)
-    right = get_points_from_fit(
+    left = gaussian_fit_points(bot_left_fit, top_left_fit, midpoint, left=True)
+    right = gaussian_fit_points(
         bot_right_fit, top_right_fit, midpoint, left=False)
 
     return left, right
@@ -642,7 +666,7 @@ def get_curverad(ploty, left_fitx, right_fitx):
     return (left_curverad + right_curverad) / 2
 
 
-def generate_plot(img, lfit, rfit):
+def gen_fit_line(img, lfit, rfit):
     ploty = np.linspace(0, img.shape[0] - 1, img.shape[0])
     left_fitx = lfit[0] * ploty ** 2 + lfit[1] * ploty + lfit[2]
     right_fitx = rfit[0] * ploty ** 2 + rfit[1] * ploty + rfit[2]
@@ -662,7 +686,14 @@ def plot_lane(input_image, left_fitx, ploty, right_fitx):
     return out_img
 
 
-prev_lanes = None
+def plot_fit_line(img, left_plotx, right_plotx, ploty):
+    left_points = np.squeeze(
+        np.array(np.dstack((left_plotx, ploty)), dtype='int32'))
+    right_points = np.squeeze(
+        np.array(np.dstack((right_plotx, ploty)), dtype='int32'))
+
+    cv2.polylines(img, [left_points], False, (0, 255, 255), 1)
+    cv2.polylines(img, [right_points], False, (0, 255, 255), 1)
 
 
 def process_image(img, lanes=None, SAVE=""):
@@ -681,7 +712,7 @@ def process_image(img, lanes=None, SAVE=""):
 
     lanes = detect_lanes(warp_img, prev_lanes=None, save_path=savename)
 
-    left_fitx, ploty, right_fitx = generate_plot(warp_img, lanes[0], lanes[1])
+    left_fitx, ploty, right_fitx = gen_fit_line(warp_img, lanes[0], lanes[1])
 
     out_img = plot_lane(img, left_fitx, ploty, right_fitx)
 
@@ -724,16 +755,21 @@ def process_video_image(img, lanes=None, SAVE=""):
 def process_test_images():
     images = glob.glob('test_images/*.jpg')
     save_path = "output_images"
-    #left_lane = Line()
-    #right_lane = Line()
+    # left_lane = Line()
+    # right_lane = Line()
 
     for fname in images:
         # print("process image:", fname)
+        global left_lane
+        global right_lane
+        left_lane = Lane()
+        right_lane = Lane()
         img = cv2.imread(fname)
         head, tail = os.path.split(fname)
         save_name = os.path.join(save_path, tail)
         prev_lanes = None
         process_image(img, lanes=None, SAVE=save_name)
+
 
 def load_test_video(file_name='test_video.mp4'):
     vimages = []
@@ -748,17 +784,19 @@ def load_test_video(file_name='test_video.mp4'):
 
     return vimages, vframes
 
+
 def process_video():
     input_video = "project_video.mp4"
     output_video = "project_lane.mp4"
-
 
     clip1 = VideoFileClip(input_video)
     output_clip = clip1.fl_image(process_video_image)
     output_clip.write_videofile(output_video, audio=False)
 
-left_lane = Line()
-right_lane = Line()
+
+left_lane = Lane()
+right_lane = Lane()
+
 
 def main(argv):
     do_process_image = False
@@ -784,11 +822,12 @@ def main(argv):
         if debug == True:
             global left_lane
             global right_lane
-            left_lane = Line(os.path.join(TMP_DIR, "video"))
-            right_lane = Line(os.path.join(TMP_DIR, "video"))
+            left_lane = Lane(os.path.join(TMP_DIR, "video"))
+            right_lane = Lane(os.path.join(TMP_DIR, "video"))
         process_video()
 
     pass
+
 
 if __name__ == "__main__":
     main(sys.argv)
