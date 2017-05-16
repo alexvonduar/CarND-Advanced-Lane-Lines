@@ -1,6 +1,7 @@
 import glob
 import os
 import pickle
+import sys
 from shutil import copyfile
 
 import matplotlib.pyplot as plt
@@ -9,9 +10,7 @@ from moviepy.editor import VideoFileClip
 from scipy import optimize
 
 import cv2
-
-from gaussian_fit import gaussian_sfit
-from gaussian_fit import gaussian
+from gaussian_fit import gaussian, gaussian_sfit
 
 #%matplotlib qt
 
@@ -40,17 +39,21 @@ def save_result(img, path, append=None):
         cv2.imwrite(savename, img)
         # print("save file :", savename)
 
+
 def save_hist(data, path, append=None):
     if path != "":
         head, tail = os.path.split(path)
         name, ext = os.path.splitext(tail)
         if append != None:
             # print("save name :", path, append)
-            append = "_" + append
+            #append = "_" + append
+            if os.path.exists(os.path.join(head, append)) == False:
+                print("mkdir :", os.path.join(head, append))
+                os.mkdir(os.path.join(head, append))
         n = int(data.shape[0] / 2)
         #varl = np.var(data[:n] / np.sum(data[:n]))
         #varr = np.var(data[n:] / np.sum(data[n:]))
-        savename = os.path.join(head, name + append + ext)
+        savename = os.path.join(head, append, name + ext)
         fig, ax = plt.subplots(nrows=1, ncols=1)  # create figure & 1 axis
 
         data = data / np.sum(data)
@@ -141,6 +144,7 @@ def do_camera_calibration(image_names, SAVE=""):
             save_result(undist, savename, append="undistort")
 
     return mtx, dist
+
 
 CAM_CAL_FILE = "calibration.pkl"
 
@@ -473,21 +477,6 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
     left_fit = np.polyfit(lefty, leftx, 2)
     right_fit = np.polyfit(righty, rightx, 2)
 
-    # Measure Radius of Curvature for each lane line
-    ym_per_pix = 30. / 720  # meters per pixel in y dimension
-    xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
-    left_fit_cr = np.polyfit(lefty * ym_per_pix, leftx * xm_per_pix, 2)
-    right_fit_cr = np.polyfit(righty * ym_per_pix, rightx * xm_per_pix, 2)
-    left_curverad = ((1 + (2 * left_fit_cr[0] * np.max(lefty) + left_fit_cr[1]) ** 2) ** 1.5) \
-        / np.absolute(2 * left_fit_cr[0])
-    right_curverad = ((1 + (2 * right_fit_cr[0] * np.max(lefty) + right_fit_cr[1]) ** 2) ** 1.5) \
-        / np.absolute(2 * right_fit_cr[0])
-
-    # Calculate the position of the vehicle
-    rightx_int = right_fit[0] * 720 ** 2 + right_fit[1] * 720 + right_fit[2]
-    leftx_int = left_fit[0] * 720 ** 2 + left_fit[1] * 720 + left_fit[2]
-    center = abs((1280 / 2) - ((rightx_int + leftx_int) / 2))
-
     # Generate x and y values for plotting
     ploty = np.linspace(0, image.shape[0] - 1, image.shape[0])
     left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
@@ -700,13 +689,22 @@ def process_image(img, lanes=None, SAVE=""):
     dist_x = dist_from_center(left_fitx, right_fitx)
     # Radius of curvature
     curverad = get_curverad(ploty, left_fitx, right_fitx)
+
     # Draw lane into original image, first do inverse perspective tranformation
     out_img = perspective_transform(out_img, dst, src)
     out_img = cv2.addWeighted(img, .5, out_img, .5, 0.0, dtype=0)
-    cv2.putText(out_img, "Radius: %.2fm" % curverad, (20, 30),
-                cv2.FONT_HERSHEY_PLAIN, 1.0, (0, 255, 0))
-    cv2.putText(out_img, "Distance from center: %.2fm" %
-                (dist_x), (20, 60), cv2.FONT_HERSHEY_PLAIN, 1.0, (0, 255, 0))
+
+    cv2.putText(out_img, "Radius: %.2fm" % curverad, (400, 650),
+                cv2.FONT_HERSHEY_DUPLEX, 1.0, (255, 255, 255))
+    if dist_x > 0:
+        cv2.putText(out_img, "Right from center: %.2fm" %
+                    (np.abs(dist_x)), (400, 700), cv2.FONT_HERSHEY_DUPLEX, 1.0, (255, 255, 255))
+    elif dist_x < 0:
+        cv2.putText(out_img, "Left from center: %.2fm" %
+                    (np.abs(dist_x)), (400, 700), cv2.FONT_HERSHEY_DUPLEX, 1.0, (255, 255, 255))
+    else:
+        cv2.putText(out_img, "Center", (400, 700),
+                    cv2.FONT_HERSHEY_DUPLEX, 1.0, (255, 255, 255))
 
     # print("save name :", save_name)
     save_result(out_img, savename, "final")
@@ -726,6 +724,8 @@ def process_video_image(img, lanes=None, SAVE=""):
 def process_test_images():
     images = glob.glob('test_images/*.jpg')
     save_path = "output_images"
+    #left_lane = Line()
+    #right_lane = Line()
 
     for fname in images:
         # print("process image:", fname)
@@ -734,13 +734,6 @@ def process_test_images():
         save_name = os.path.join(save_path, tail)
         prev_lanes = None
         process_image(img, lanes=None, SAVE=save_name)
-
-
-left_lane = Line()
-right_lane = Line()
-
-process_test_images()
-
 
 def load_test_video(file_name='test_video.mp4'):
     vimages = []
@@ -755,14 +748,47 @@ def load_test_video(file_name='test_video.mp4'):
 
     return vimages, vframes
 
-
-left_lane = Line(os.path.join(TMP_DIR, "video"))
-right_lane = Line(os.path.join(TMP_DIR, "video"))
-input_video = "project_video.mp4"
-output_video = "project_lane.mp4"
+def process_video():
+    input_video = "project_video.mp4"
+    output_video = "project_lane.mp4"
 
 
-clip1 = VideoFileClip(input_video)
-output_clip = clip1.fl_image(process_video_image)
-output_clip.write_videofile(output_video, audio=False)
+    clip1 = VideoFileClip(input_video)
+    output_clip = clip1.fl_image(process_video_image)
+    output_clip.write_videofile(output_video, audio=False)
 
+left_lane = Line()
+right_lane = Line()
+
+def main(argv):
+    do_process_image = False
+    do_process_video = False
+    debug = False
+
+    while(len(argv) != 0):
+        command = argv.pop()
+
+        if command == "image":
+            do_process_image = True
+        elif command == "video":
+            do_process_video = True
+        elif command == "debug":
+            debug = True
+
+    if do_process_image:
+        print("Processing test images...")
+        process_test_images()
+
+    if do_process_video:
+        print("Processing video...")
+        if debug == True:
+            global left_lane
+            global right_lane
+            left_lane = Line(os.path.join(TMP_DIR, "video"))
+            right_lane = Line(os.path.join(TMP_DIR, "video"))
+        process_video()
+
+    pass
+
+if __name__ == "__main__":
+    main(sys.argv)
