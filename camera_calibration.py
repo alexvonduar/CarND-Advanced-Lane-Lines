@@ -124,7 +124,10 @@ def do_undistort(fname):
     basename = os.path.basename(fname)
     head, ext = os.path.splitext(basename)
     savename = os.path.join('output_images', head + '_undistort' + ext)
-    fig = plt.figure()
+    w = image.shape[1]
+    h = image.shape[0]
+    dpi = 96
+    fig = plt.figure(figsize=(w/dpi, h/dpi))
     #plt.suptitle(fname)
     plt.subplot(211)
     plt.imshow(image)
@@ -134,7 +137,7 @@ def do_undistort(fname):
     plt.title('Undistort Image')
     plt.xlabel(fname)
     fig.tight_layout()
-    fig.savefig(savename)
+    fig.savefig(savename, dpi=dpi)
     plt.close()
 
 def test_undistort(path):
