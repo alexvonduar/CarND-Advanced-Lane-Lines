@@ -11,174 +11,18 @@ from scipy import optimize
 
 import cv2
 from gaussian_fit import gaussian, gaussian_sfit
+from helper_functions import save_image
+from helper_functions import save_hist
+from camera_calibration import cam_calib
+from perspective import persp_trans_backward
+from perspective import persp_trans_forward
 
 #%matplotlib qt
 
 # helper functions and global defs
 TMP_DIR = "output_images"
-CAL_DIR = "camera_cal"
+
 # OUT_DIR = "output_images"
-src = np.float32([[500, 482], [800, 482], [1240, 720], [50, 720]])
-dst = np.float32([[0, 0], [1280, 0], [1250, 720], [40, 720]])
-src = np.float32([[520, 480], [760, 480], [1240, 720], [40, 720]])
-# dst = np.float32([[350, 0], [930, 0], [930, 720], [350, 720]])
-dst = np.float32([[50, 0], [1230, 0], [1230, 720], [50, 720]])
-
-
-def save_result(img, path, append=None):
-    if path != "":
-        head, tail = os.path.split(path)
-        name, ext = os.path.splitext(tail)
-        if append != None:
-            # print("save name :", path, append)
-            if os.path.exists(os.path.join(head, append)) == False:
-                print("mkdir :", os.path.join(head, append))
-                os.mkdir(os.path.join(head, append))
-            # append = "_" + append
-        savename = os.path.join(head, append, name + ext)
-        cv2.imwrite(savename, img)
-        # print("save file :", savename)
-
-
-def save_hist(data, path, append=None):
-    if path != "":
-        head, tail = os.path.split(path)
-        name, ext = os.path.splitext(tail)
-        if append != None:
-            # print("save name :", path, append)
-            # append = "_" + append
-            if os.path.exists(os.path.join(head, append)) == False:
-                print("mkdir :", os.path.join(head, append))
-                os.mkdir(os.path.join(head, append))
-        n = int(data.shape[0] / 2)
-        # varl = np.var(data[:n] / np.sum(data[:n]))
-        # varr = np.var(data[n:] / np.sum(data[n:]))
-        savename = os.path.join(head, append, name + ext)
-        fig, ax = plt.subplots(nrows=1, ncols=1)  # create figure & 1 axis
-
-        data = data / np.sum(data)
-
-        ax.plot(data, 'b')
-
-        left = np.copy(data)
-        left[n:] = 0
-        right = np.copy(data)
-        right[:n] = 0
-
-        # left_fit = gaussian_fit(left)
-        left_fit = gaussian_sfit(left)
-        ax.plot(gaussian(left_fit, np.arange(len(data))), 'r')
-
-        # right_fit = gaussian_fit(right)
-        right_fit = gaussian_sfit(right)
-        ax.plot(gaussian(right_fit, np.arange(len(right))), 'g')
-
-        ax.set_title("left mean: " + "{0:f}".format(left_fit[0]) +
-                     " stdev: " + "{0:f}".format(left_fit[1]) +
-                     " max: " + "{0:f}\n".format(left_fit[2]) +
-                     " right mean: " + "{0:f}".format(right_fit[0]) +
-                     " stdev: " + "{0:f}".format(right_fit[1]) +
-                     " max: " + "{0:f}".format(right_fit[2]))
-
-        fig.savefig(savename)   # save the figure to file
-        plt.close(fig)    # close the figure
-
-
-def do_camera_calibration(image_names, SAVE=""):
-    # prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(6,5,0)
-    objp = np.zeros((6 * 9, 3), np.float32)
-    objp[:, :2] = np.mgrid[0:9, 0:6].T.reshape(-1, 2)
-
-    # Arrays to store object points and image points from all the images.
-    objpoints = []  # 3d points in real world space
-    imgpoints = []  # 2d points in image plane.
-
-    # Step through the list and search for chessboard corners
-    for image_name in image_names:
-        img = cv2.imread(image_name)
-
-        # save original images into save dir
-        if SAVE != "":
-            basename = os.path.basename(image_name)
-            head, tail = os.path.split(SAVE)
-            savename = os.path.join(head, basename)
-            save_result(img, savename, append="original")
-
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-        # Find the chessboard corners
-        ret, corners = cv2.findChessboardCorners(gray, (9, 6), None)
-
-        # If found, add object points, image points
-        if ret is True:
-            objpoints.append(objp)
-            imgpoints.append(corners)
-
-            # Draw and save the chessboard corners
-            if SAVE != "":
-                basename = os.path.basename(image_name)
-                head, tail = os.path.split(SAVE)
-                savename = os.path.join(head, basename)
-                chess_img = cv2.drawChessboardCorners(
-                    img, (9, 6), corners, ret)
-                # print("save :", savename)
-                save_result(chess_img, savename, append="chess")
-
-        else:
-            print("can't fine chess board ", image_name)
-
-    print("Found", len(imgpoints),
-          "images with chessboard corners from", len(image_names), "images.")
-
-    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(
-        objpoints, imgpoints, gray.shape[::-1], None, None)
-
-    if SAVE != "":
-        for image_name in image_names:
-            img = cv2.imread(image_name)
-            basename = os.path.basename(image_name)
-            head, tail = os.path.split(SAVE)
-            savename = os.path.join(head, basename)
-            undist = cv2.undistort(img, mtx, dist, None, mtx)
-            # print("save :", savename)
-            save_result(undist, savename, append="undistort")
-
-    return mtx, dist
-
-
-CAM_CAL_FILE = "calibration.pkl"
-
-
-def save_matrix(path, mtx, dist):
-    try:
-        of = open(path, 'wb')
-        save = {
-            'MTX': mtx,
-            'DIST': dist,
-        }
-        pickle.dump(save, of, pickle.HIGHEST_PROTOCOL)
-        of.close()
-    except Exception as e:
-        print('Unable to save data to', path, ':', e)
-        raise
-
-
-def load_matrix(path):
-    with open(path, mode='rb') as inf:
-        calib = pickle.load(inf)
-
-    return calib['MTX'], calib['DIST']
-
-
-def cam_calib(cal_dir=CAL_DIR, cal_file=CAM_CAL_FILE, SAVE=""):
-    if os.path.exists(cal_file):
-        mtx, dist = load_matrix(cal_file)
-    else:
-        images = glob.glob(os.path.join(cal_dir, "calibration*.jpg"))
-        mtx, dist = do_camera_calibration(images, SAVE)
-        if save_matrix(cal_file, mtx, dist) == False:
-            print("save pickle file failed")
-    return mtx, dist
 
 
 def gen_binary_images(img, mtx, dist, SAVE=""):
@@ -187,16 +31,17 @@ def gen_binary_images(img, mtx, dist, SAVE=""):
         savename = os.path.join(left_lane.savepath, left_lane.savename)
     else:
         savename = SAVE
-    save_result(img, savename, "original")
+    save_image(img, savename, "original")
 
     # undistort image
     dst = cv2.undistort(img, mtx, dist, None, mtx)
-    save_result(dst, savename, "undistort")
+    save_image(dst, savename, "undistort")
 
     # Convert to HLS color space and separate the S channel
     # Note: img is the undistorted image
     hls = cv2.cvtColor(dst, cv2.COLOR_BGR2HLS)
     s_channel = hls[:, :, 2]
+    l_channel = hls[:, :, 1]
 
     # Grayscale image
     # NOTE: we already saw that standard grayscaling lost color information for
@@ -217,11 +62,17 @@ def gen_binary_images(img, mtx, dist, SAVE=""):
     sxbinary = np.zeros_like(scaled_sobel)
     sxbinary[(scaled_sobel >= thresh_min) & (scaled_sobel <= thresh_max)] = 1
 
+    # Threshold luma channel
+    l_thresh_min = 30
+    #l_binary = np.zeros_like(l_channel)
+    #l_binary[l_channel >= l_thresh_min] = 1
+
     # Threshold color channel
     s_thresh_min = 170
-    s_thresh_max = 190
+    s_thresh_max = 255
     s_binary = np.zeros_like(s_channel)
-    s_binary[(s_channel >= s_thresh_min) & (s_channel <= s_thresh_max)] = 1
+    s_binary[(s_channel >= s_thresh_min) & (s_channel <= s_thresh_max) & (l_channel >= l_thresh_min)] = 1
+
 
     # Stack each channel to view their individual contributions in green and
     # blue respectively
@@ -230,29 +81,15 @@ def gen_binary_images(img, mtx, dist, SAVE=""):
     color_binary = np.dstack((sxbinary, s_binary, np.zeros_like(sxbinary)))
     color_binary[(sxbinary == 1), 0] = 255
     color_binary[(s_binary == 1), 1] = 255
-    cv2.line(color_binary, (src[0][0], src[0][1]),
-             (src[1][0], src[1][1]), (0, 0, 255))
-    cv2.line(color_binary, (src[1][0], src[1][1]),
-             (src[2][0], src[2][1]), (0, 0, 255))
-    cv2.line(color_binary, (src[2][0], src[2][1]),
-             (src[3][0], src[3][1]), (0, 0, 255))
-    cv2.line(color_binary, (src[3][0], src[3][1]),
-             (src[0][0], src[0][1]), (0, 0, 255))
-    save_result(color_binary, savename, "color_stack")
+    save_image(color_binary, savename, "color_stack")
 
     # Combine the two binary thresholds
     combined_binary = np.zeros_like(sxbinary)
     combined_binary[(s_binary == 1) | (sxbinary == 1)] = 255
 
-    save_result(combined_binary, savename, "combined")
+    save_image(combined_binary, savename, "combined")
     return combined_binary
 
-
-def perspective_transform(img, src, dst):
-    size = (img.shape[1], img.shape[0])
-    M = cv2.getPerspectiveTransform(src, dst)
-    dst = cv2.warpPerspective(img, M, size, flags=cv2.INTER_LINEAR)
-    return dst
 
 # Define a class to receive the characteristics of each line detection
 
@@ -286,7 +123,7 @@ class Lane():
         # number of history result saved
         self.num_history = 0
         # maximum number of history save
-        self.MAX_NUM_HISTORY = 3
+        self.MAX_NUM_HISTORY = 7
         # debug name
         self.savename = "{0:08d}".format(self.num_frames) + ".jpg"
         # debug save path
@@ -325,7 +162,7 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
         savename = save_path
 
     # Choose the number of sliding windows
-    nwindows = 18
+    nwindows = 9
     left_center_line = []
     right_center_line = []
     if left_lane.detected == False:
@@ -351,7 +188,7 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
         leftx_current = leftx_base
         rightx_current = rightx_base
         # Set the width of the windows +/- margin
-        margin = 100
+        margin = 50
         # Set minimum number of pixels found to recenter window
         minpix = 50
         # Create empty lists to receive left and right lane pixel indices
@@ -501,7 +338,7 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
         pred_right_fit[1] * ploty + pred_right_fit[2]
 
     # Create an image to draw on and an image to show the selection window
-    out_img = np.dstack((image, image, image)) * 255
+    out_img = np.dstack((image, image, image)) #* 255
     window_img = np.zeros_like(out_img)
     # Color in left and right line pixels
     out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
@@ -542,7 +379,7 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
     cv2.fillPoly(window_img, np.int_([right_line_pts]), (0, 255, 0))
     result = cv2.addWeighted(out_img, 1, window_img, 0.3, 0)
     # print("save lane image: ", savename)
-    save_result(out_img, savename, "lane")
+    save_image(out_img, savename, "lane")
 
     left_lane.update(left_fitx, ploty)
     right_lane.update(right_fitx, ploty)
@@ -594,16 +431,21 @@ def gaussian_fit_points(bot_gaussian_fit, top_gaussian_fit, midpoint, left=True)
     else:
         good_position = bot_mean > (midpoint + midpoint / 4)
 
-    if bot_stdev < 100 and top_max > 0.1 and good_position:
+    if bot_stdev < 100 and bot_max > 0.1 and good_position:
         bot_candidate = bot_mean
 
     if top_candidate == 0 and bot_candidate == 0:
         point = int((top_mean + bot_mean) / 2)
     elif top_candidate != 0 and bot_candidate != 0:
-        point = int((top_candidate + bot_candidate) / 2)
+        if (top_max > (2 * bot_max)):
+            point = top_candidate
+        elif(bot_max > (2 * top_max)):
+            point = bot_candidate
+        else:
+            point = int((top_candidate + bot_candidate) / 2)
     else:
         point = top_candidate + bot_candidate
-    return point
+    return int(point)
 
 
 def gen_from_hist(bot, top):
@@ -706,9 +548,13 @@ def process_image(img, lanes=None, SAVE=""):
 
     # print("process :", fname)
     bin_img = gen_binary_images(img, mtx, dist, savename)
+    #print("bin image shape", bin_img.shape, "type", bin_img.dtype)
 
-    warp_img = perspective_transform(bin_img, src, dst)
-    save_result(warp_img, savename, "warp")
+    warp_img = persp_trans_forward(bin_img)
+    index = np.copy(warp_img)
+    warp_img[index[:,:] > 0] = 255
+    #print("warp image shape", warp_img.shape, "type", warp_img.dtype)
+    save_image(warp_img, savename, "warp")
 
     lanes = detect_lanes(warp_img, prev_lanes=None, save_path=savename)
 
@@ -722,7 +568,7 @@ def process_image(img, lanes=None, SAVE=""):
     curverad = get_curverad(ploty, left_fitx, right_fitx)
 
     # Draw lane into original image, first do inverse perspective tranformation
-    out_img = perspective_transform(out_img, dst, src)
+    out_img = persp_trans_backward(out_img)
     out_img = cv2.addWeighted(img, .5, out_img, .5, 0.0, dtype=0)
 
     cv2.putText(out_img, "Radius: %.2fm" % curverad, (400, 650),
@@ -738,7 +584,7 @@ def process_image(img, lanes=None, SAVE=""):
                     cv2.FONT_HERSHEY_DUPLEX, 1.0, (255, 255, 255))
 
     # print("save name :", save_name)
-    save_result(out_img, savename, "final")
+    save_image(out_img, savename, "final")
 
     return out_img
 
@@ -797,6 +643,7 @@ def process_video():
 left_lane = Lane()
 right_lane = Lane()
 
+#process_test_images()
 
 def main(argv):
     do_process_image = False
@@ -827,7 +674,6 @@ def main(argv):
         process_video()
 
     pass
-
 
 if __name__ == "__main__":
     main(sys.argv)
