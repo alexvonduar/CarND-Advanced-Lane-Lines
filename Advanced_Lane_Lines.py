@@ -476,7 +476,7 @@ def gen_from_hist(bot, top):
 # Define conversions in x and y from pixels space to meters
 IMG_WIDTH = 1280
 IMG_HEIGHT = 720
-LANE_WIDTH_PX = 640
+LANE_WIDTH_PX = 700
 YM_PER_PX = 30 / IMG_HEIGHT  # meters per pixel in y dimension
 XM_PER_PX = 3.7 / LANE_WIDTH_PX  # meters per pixel in x dimension
 
