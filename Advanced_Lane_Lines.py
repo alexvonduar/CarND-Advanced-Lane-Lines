@@ -338,7 +338,7 @@ def detect_lanes(image, prev_lanes=None, save_path=""):
         pred_right_fit[1] * ploty + pred_right_fit[2]
 
     # Create an image to draw on and an image to show the selection window
-    out_img = np.dstack((image, image, image)) #* 255
+    out_img = np.dstack((image, image, image)) * 255
     window_img = np.zeros_like(out_img)
     # Color in left and right line pixels
     out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
@@ -551,8 +551,8 @@ def process_image(img, lanes=None, SAVE=""):
     #print("bin image shape", bin_img.shape, "type", bin_img.dtype)
 
     warp_img = persp_trans_forward(bin_img)
-    index = np.copy(warp_img)
-    warp_img[index[:,:] > 0] = 255
+    #index = np.copy(warp_img)
+    #warp_img[index[:,:] > 0] = 255
     #print("warp image shape", warp_img.shape, "type", warp_img.dtype)
     save_image(warp_img, savename, "warp")
 
